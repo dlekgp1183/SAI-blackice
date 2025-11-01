@@ -15,20 +15,21 @@ import requests
 
 st.set_page_config(page_title="Black Ice Safety Dashboard", page_icon="❄️", layout="wide")
 
-# GitHub Release에서 모델 파일 다운로드 URL
+# =========================
+# 모델 다운로드 URL
+# =========================
 MODEL_URL = "https://github.com/dlekgp1183/SAI-blackice/releases/download/v1.0/blackice_model.joblib"
 MODEL_FILENAME = "blackice_model.joblib"
 CACHE_DIR = "model_cache"
 MODEL_PATH = os.path.join(CACHE_DIR, MODEL_FILENAME)
 
 # =========================
-# 모델 다운로드 및 로드 함수
+# 모델 다운로드 및 로드
 # =========================
 @st.cache_data(show_spinner="⏳ 모델 파일 다운로드 및 로드 중...")
 def load_model_from_github():
     os.makedirs(CACHE_DIR, exist_ok=True)
     if os.path.exists(MODEL_PATH):
-        # 이미 로컬에 있으면 그냥 로드
         return load(MODEL_PATH)
     try:
         response = requests.get(MODEL_URL, stream=True)
@@ -37,7 +38,6 @@ def load_model_from_github():
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        # 완료 메시지 제거 -> 그냥 로드
         return load(MODEL_PATH)
     except requests.exceptions.RequestException as e:
         st.error(f"❌ GitHub에서 모델 다운로드 실패: {e}")
@@ -46,9 +46,8 @@ def load_model_from_github():
         st.error(f"❌ 모델 로드 중 오류 발생: {e}")
         st.stop()
 
-
 # =========================
-# CSS: 폰트 + subheader 스타일
+# CSS: 폰트 + subheader
 # =========================
 st.markdown("""
 <style>
@@ -144,32 +143,14 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 
 # =========================
-# 좌표 캐시 함수
+# 좌표 캐시 함수 (레포지토리 파일 우선)
 # =========================
 @st.cache_data
 def load_or_cache_coords(highway_name, city_name):
-    os.makedirs("coords_cache", exist_ok=True)
-    filename = f"coords_cache/{highway_name}_{city_name}.csv"
-    if os.path.exists(filename):
-        return pd.read_csv(filename)
-    try:
-        G = ox.graph_from_place(f"{city_name}, South Korea", network_type='drive')
-        nodes, edges = ox.graph_to_gdfs(G)
-        edges = edges[edges['name'].str.contains(highway_name, na=False)]
-        coords = []
-        for _, row in edges.iterrows():
-            geom = row['geometry']
-            lines = [geom] if isinstance(geom, LineString) else list(geom.geoms) if isinstance(geom, MultiLineString) else []
-            for line in lines:
-                xs = np.linspace(line.coords[0][0], line.coords[-1][0], 10)
-                ys = np.linspace(line.coords[0][1], line.coords[-1][1], 10)
-                coords.extend(list(zip(xs, ys)))
-        df_coords = pd.DataFrame(coords, columns=['lon','lat'])
-        df_coords.to_csv(filename, index=False)
-        return df_coords
-    except Exception as e:
-        print(f"⚠️ {city_name} OSMnx 그래프를 가져오는 데 실패했습니다:", e)
-        return pd.DataFrame(columns=['lon','lat'])
+    filename = f"coords_{highway_name}_{city_name}.csv"
+    return pd.read_csv(filename)
+
+
 
 # =========================
 # 고속도로, 도시 목록
@@ -182,7 +163,7 @@ cities_dict = {
 }
 
 # =========================
-# 사이드바: 고속도로 선택
+# 사이드바
 # =========================
 with st.sidebar:
     highway_choice = option_menu(
@@ -219,7 +200,7 @@ if 'all_coords' not in st.session_state:
     st.session_state['all_coords'] = {}
 
 # =========================
-# 초기 좌표 로드
+# 좌표 로드
 # =========================
 for highway in highways:
     if highway not in st.session_state['all_coords']:
@@ -234,7 +215,7 @@ for highway in highways:
 selected_city = st.selectbox(f"{highway_choice} 주요 도시 선택", cities_dict[highway_choice])
 
 # =========================
-# 세션에 도시 데이터 초기화
+# 세션 데이터 초기화
 # =========================
 key_combo = f"{highway_choice}_{selected_city}"
 if highway_choice not in st.session_state['highway_data']:
@@ -253,7 +234,7 @@ df_points = st.session_state['highway_data'][highway_choice][key_combo]
 left_col, right_col = st.columns([1.5, 2])
 
 # ---------- Heatmap ----------
-with left_col.container(border=True, height="stretch"):
+with left_col.container():
     st.markdown(f'<div class="subheader-box">위험도 Heatmap - {selected_city}</div>', unsafe_allow_html=True)
     if st.button("새로고침", key=f"refresh_{key_combo}"):
         new_rows = []
@@ -293,7 +274,7 @@ with left_col.container(border=True, height="stretch"):
     st_folium(m, width=700, height=500)
 
 # ---------- 수치표 ----------
-with right_col.container(border=True, height="stretch"):
+with right_col.container():
     st.markdown(f'<div class="subheader-box">모델 예측 데이터 수치표 - {selected_city}</div>', unsafe_allow_html=True)
 
     def highlight_risk(row):
@@ -311,7 +292,7 @@ with right_col.container(border=True, height="stretch"):
         st.info("데이터를 추가해 주세요.")
 
 # ---------- 파이차트 ----------
-with right_col.container(border=True, height="stretch"):
+with right_col.container():
     st.markdown(f'<div class="subheader-box">안전/주의/위험 구간 비율 - {selected_city}</div>', unsafe_allow_html=True)
     if not df_points.empty:
         bins = pd.cut(df_points['risk'], bins=[0,30,60,100], labels=['안전','주의','위험'])
