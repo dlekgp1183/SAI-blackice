@@ -1,0 +1,53 @@
+{
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "terminal.integrated.profiles.windows": {
+      "Git Bash": {
+        "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+      }
+    },
+    "editor.tabSize": 4,
+    "editor.lineHeight": 1.6,
+    "editor.fontLigatures": false,
+    "workbench.colorTheme": "Default Dark Modern",
+    "workbench.iconTheme": "vscode-icons",
+    "editor.fontFamily": "JetBrains Mono NL,CookieRun, D2Coding, Consolas, 'Courier New', monospace",
+    "workbench.startupEditor": "none",
+    "explorer.compactFolders": false,
+    "emmet.variables": {
+      "lang": "ko"
+    },
+    "vsicons.dontShowNewVersionMessage": true,
+    "editor.tokenColorCustomizations": {
+      //"comments": "#ffc2c2"
+      //"comments": "#0aef47"
+      "comments": "#01a2b1"
+    },
+    "[css]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[html]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[javascript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "js/ts.implicitProjectConfig.strictNullChecks": true,
+    "json.schemas": [],
+    "git.enableSmartCommit": true,
+    "editor.codeActionsOnSave": {},
+    "window.zoomLevel": 2,
+    "editor.accessibilitySupport": "off",
+    "git.confirmSync": false,
+    "[python]": {
+      "editor.formatOnType": true
+    },
+    "editor.fontSize": 18,
+    "editor.wordWrap": "off",
+    "terminal.integrated.fontFamily": "monospace",
+    "editor.mouseWheelZoom": true,
+    "files.autoSave": "afterDelay",
+    "[json]": {
+      "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "github.copilot.editor.enableAutoCompletions": true,
+  }
