@@ -8,8 +8,8 @@ from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 from joblib import load
 import os
-import osmnx as ox
-from shapely.geometry import LineString, MultiLineString
+import osmnx as ox # (사용되지 않는 모듈이지만 남겨둠)
+from shapely.geometry import LineString, MultiLineString # (사용되지 않는 모듈이지만 남겨둠)
 import altair as alt
 import requests
 
@@ -137,7 +137,13 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
 # =========================
 # 데이터 로드
 # =========================
-df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
+# Assuming test_data.csv is available in the deployment directory
+try:
+    df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
+except FileNotFoundError:
+    st.error("test_data.csv 파일을 찾을 수 없습니다. 테스트 데이터가 필요합니다.")
+    st.stop()
+
 
 # =========================
 # 좌표 캐시 (세션 독립)
@@ -146,7 +152,11 @@ df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 def load_coords_file(highway_name, city_name):
     BASE_DIR = os.path.dirname(__file__)
     filename = os.path.join(BASE_DIR, f"coords_{highway_name}_{city_name}.csv")
-    return pd.read_csv(filename)
+    try:
+        return pd.read_csv(filename)
+    except FileNotFoundError:
+        st.error(f"좌표 파일 {filename}을 찾을 수 없습니다.")
+        return pd.DataFrame({'lon': [], 'lat': []})
 
 # =========================
 # 고속도로, 도시 목록
@@ -216,7 +226,7 @@ selected_city = st.selectbox(f"{highway_choice} 주요 도시 선택", cities_di
 key_combo = f"{highway_choice}_{selected_city}"
 if highway_choice not in st.session_state['highway_data']:
     st.session_state['highway_data'][highway_choice] = {}
-if key_combo not in st.session_state['highway_data'][highway_choice]:
+if key_combo not in st.session_state['highway_data'][highway_choice] or st.session_state['highway_data'][highway_choice][key_combo].empty:
     st.session_state['highway_data'][highway_choice][key_combo] = pd.DataFrame(
         columns=["lon","lat","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]
     )
@@ -232,6 +242,8 @@ left_col, right_col = st.columns([1.5, 2])
 # ---------- Heatmap ----------
 with left_col.container():
     st.markdown(f'<div class="subheader-box">위험도 Heatmap - {selected_city}</div>', unsafe_allow_html=True)
+    
+    # **데이터 누적 방지 로직 수정 시작**
     if st.button("새로고침", key=f"refresh_{key_combo}"):
         new_rows = []
         for _ in range(5):
@@ -251,18 +263,29 @@ with left_col.container():
             })
 
         # ------------------------
-        # 세션 독립형 concat
+        # 세션 독립형 concat 및 크기 제한 로직
         # ------------------------
-        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
+        MAX_POINTS = 100 # 최대 포인트 수 설정: 이 값을 조정하여 메모리 사용량을 조절합니다.
+        
         new_df = pd.DataFrame(new_rows)
+        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
+
         if existing_df.empty or existing_df.isna().all().all():
-            existing_df = pd.DataFrame(columns=new_df.columns)
-        if not new_df.empty:
-            st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
-                [existing_df.copy(), new_df.copy()],
+            updated_df = new_df
+        else:
+            updated_df = pd.concat(
+                [existing_df, new_df],
                 ignore_index=True
             )
+        
+        # 최대 크기 제한: 데이터가 MAX_POINTS를 초과하면, 가장 오래된 데이터(가장 위쪽 행)를 제거
+        if len(updated_df) > MAX_POINTS:
+            updated_df = updated_df.iloc[-MAX_POINTS:] # 끝에서부터 MAX_POINTS 개만 남김
+
+        st.session_state['highway_data'][highway_choice][key_combo] = updated_df
         df_points = st.session_state['highway_data'][highway_choice][key_combo]
+    # **데이터 누적 방지 로직 수정 끝**
+
 
     # 지도 표시
     if df_points.empty:
@@ -270,10 +293,16 @@ with left_col.container():
     else:
         lat_mean = df_points['lat'].mean()
         lon_mean = df_points['lon'].mean()
-        lat_min, lat_max = df_points['lat'].min(), df_points['lat'].max()
-        lon_min, lon_max = df_points['lon'].min(), df_points['lon'].max()
-        zoom_level = int(14 - max(lat_max-lat_min, lon_max-lon_min)*30)
-        zoom_level = max(12, min(zoom_level, 18))
+        
+        # 맵 뷰포트 계산을 위한 안전장치 추가
+        if len(df_points) > 1:
+            lat_min, lat_max = df_points['lat'].min(), df_points['lat'].max()
+            lon_min, lon_max = df_points['lon'].min(), df_points['lon'].max()
+            zoom_level = int(14 - max(lat_max-lat_min, lon_max-lon_min)*30)
+            zoom_level = max(12, min(zoom_level, 18))
+        else:
+            zoom_level = 15 # 데이터가 1개일 경우 기본 줌 레벨
+            
         m = folium.Map(location=[lat_mean, lon_mean], zoom_start=zoom_level)
         HeatMap(df_points[['lat','lon','risk']].values, radius=18, blur=10, min_opacity=0.5).add_to(m)
     st_folium(m, width=700, height=500)
@@ -298,8 +327,8 @@ with right_col.container():
 with right_col.container():
     st.markdown(f'<div class="subheader-box">안전/주의/위험 구간 비율 - {selected_city}</div>', unsafe_allow_html=True)
     if not df_points.empty:
-        bins = pd.cut(df_points['risk'], bins=[0,30,60,100], labels=['안전','주의','위험'])
-        count = bins.value_counts().reindex(['안전','주의','위험']).reset_index()
+        bins = pd.cut(df_points['risk'], bins=[0,30,60,100], labels=['안전','주의','위험'], right=False) # 30 미만, 60 미만, 100 미만
+        count = bins.value_counts().reindex(['안전','주의','위험']).fillna(0).reset_index() # 0으로 채워서 오류 방지
         count.columns = ['category','count']
         pie_chart = alt.Chart(count).mark_arc(innerRadius=30).encode(
             theta=alt.Theta(field="count", type="quantitative"),
