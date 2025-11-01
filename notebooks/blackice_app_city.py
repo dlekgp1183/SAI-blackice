@@ -147,8 +147,11 @@ df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 # =========================
 @st.cache_data
 def load_or_cache_coords(highway_name, city_name):
-    filename = f"coords_{highway_name}_{city_name}.csv"
+    import os
+    BASE_DIR = os.path.dirname(__file__)  # 현재 파일 기준 경로
+    filename = os.path.join(BASE_DIR, "coords_cache", f"coords_{highway_name}_{city_name}.csv")
     return pd.read_csv(filename)
+
 
 
 
