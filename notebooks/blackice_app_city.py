@@ -83,81 +83,15 @@ body, p, h2, h3, h4, h5, h6,
 st.markdown('<h1 class="title-font">❄️ 블랙아이스 위험도 모니터링</h1>', unsafe_allow_html=True)
 
 # =========================
-# 기상청 API (JSON)
+# test_data.csv 로드
 # =========================
-API_KEY = "10hq%2FXQHlvOAFMbPmF7Iwe0j1bOYBeh2x0dh6Budm8HVNXqsQpPcwYF3Z5r%2F0r%2FYoFAMpK%2BYg1ztyXBLMNE9xw%3D%3D"
-API_URL = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(BASE_DIR, "test_data.csv")
 
-def latlon_to_grid(lat, lon):
-    nx = int(lon*10)
-    ny = int(lat*10)
-    return nx, ny
-
-def get_base_datetime():
-    now = datetime.now()
-    if now.minute < 45:
-        hour = now.hour - 1
-        if hour < 0:
-            hour = 23
-            base_date = (now - pd.Timedelta(days=1)).strftime("%Y%m%d")
-        else:
-            base_date = now.strftime("%Y%m%d")
-        base_time = f"{hour:02d}30"
-    else:
-        base_date = now.strftime("%Y%m%d")
-        base_time = f"{now.hour:02d}30"
-    return base_date, base_time
-
-@st.cache_data(ttl=600)
-def fetch_weather(lat=37.5665, lon=126.9780):
-    nx, ny = latlon_to_grid(lat, lon)
-    base_date, base_time = get_base_datetime()
-    params = {
-        "serviceKey": API_KEY,
-        "numOfRows": 3000,
-        "pageNo": 1,
-        "dataType": "JSON",
-        "base_date": base_date,
-        "base_time": base_time,
-        "nx": nx,
-        "ny": ny
-    }
-    res = requests.get(API_URL, params=params, timeout=10)
-    if res.status_code != 200:
-        return {"tmp":"-", "hum":"-", "sky":"-"}
-    data = res.json()
-    items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
-    weather = {"tmp":"-", "hum":"-", "sky":"-"}
-    for item in items:
-        if item["category"]=="TMP":
-            weather["tmp"] = item["fcstValue"]
-        elif item["category"]=="REH":
-            weather["hum"] = item["fcstValue"]
-        elif item["category"]=="SKY":
-            sky_val = item["fcstValue"]
-            weather["sky"] = "맑음" if sky_val=="1" else "구름많음" if sky_val=="3" else "흐림"
-    return weather
-
-weather = fetch_weather()
-
-# =========================
-# 상단 메트릭
-# =========================
-cols = st.columns(6, gap="small")
-cols[0].metric("현재 기온", f"{weather['tmp']}ºC")
-cols[1].metric("현재 습도", f"{weather['hum']}%")
-cols[2].metric("날씨", weather["sky"])
-cols[3].metric("Max temperature", "35.0°C", delta="-0.6°C")
-cols[4].metric("Min temperature", "-3.8°C", delta="2.2°C")
-cols[5].metric("Max wind", "8.0 m/s", delta="-0.8 m/s")
-
-# =========================
-# 데이터 로드
-# =========================
 try:
-    df = pd.read_csv("test_data.csv")
+    df = pd.read_csv(CSV_PATH)
 except FileNotFoundError:
-    st.error("❌ 'test_data.csv' 파일을 찾을 수 없습니다.")
+    st.error(f"❌ '{CSV_PATH}' 파일을 찾을 수 없습니다.")
     st.stop()
 
 # =========================
@@ -250,8 +184,6 @@ if 'highway_data' not in st.session_state:
     st.session_state['highway_data'] = {}
 if 'all_coords' not in st.session_state:
     st.session_state['all_coords'] = {}
-if 'auto_added' not in st.session_state:
-    st.session_state['auto_added'] = {}
 
 key_combo = f"{highway_choice}_{selected_city}"
 st.session_state['all_coords'].setdefault(highway_choice, {})
@@ -266,7 +198,7 @@ road_df = st.session_state['all_coords'][highway_choice][selected_city]
 df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
 # =========================
-# 자동 데이터 추가 함수
+# 자동 데이터 추가
 # =========================
 def add_new_data(df_points, road_df, n=1):
     if len(df_points) >= 50:
@@ -292,9 +224,6 @@ def add_new_data(df_points, road_df, n=1):
 if len(df_points) < 50:
     st.session_state['highway_data'][highway_choice][key_combo] = add_new_data(df_points, road_df, n=5)
     df_points = st.session_state['highway_data'][highway_choice][key_combo]
-else:
-    now_hour = datetime.now().hour
-    st.success(f"{now_hour} 시의 데이터 로드가 완료되었습니다.")
 
 # =========================
 # Heatmap & 수치표 & 파이차트
@@ -338,3 +267,4 @@ with right_col.container():
         st.altair_chart(pie_chart, use_container_width=True)
     else:
         st.info("데이터를 추가해 주세요.")
+ 
