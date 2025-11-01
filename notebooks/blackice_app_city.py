@@ -143,17 +143,13 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 
 # =========================
-# 좌표 캐시 함수 (레포지토리 파일 우선)
+# 좌표 캐시 함수
 # =========================
 @st.cache_data
 def load_or_cache_coords(highway_name, city_name):
-    import os
-    BASE_DIR = os.path.dirname(__file__)  # 현재 파일 기준 경로
+    BASE_DIR = os.path.dirname(__file__)
     filename = os.path.join(BASE_DIR, f"coords_{highway_name}_{city_name}.csv")
     return pd.read_csv(filename)
-
-
-
 
 # =========================
 # 고속도로, 도시 목록
@@ -239,6 +235,7 @@ left_col, right_col = st.columns([1.5, 2])
 # ---------- Heatmap ----------
 with left_col.container():
     st.markdown(f'<div class="subheader-box">위험도 Heatmap - {selected_city}</div>', unsafe_allow_html=True)
+    
     if st.button("새로고침", key=f"refresh_{key_combo}"):
         new_rows = []
         for _ in range(5):
@@ -256,27 +253,22 @@ with left_col.container():
                 "rltv_hmdt": rltv_hmdt, "hour": hour,
                 "time_slot": slot, "risk": risk
             })
-        
-        # ------------------------
-        # 빈 DataFrame 체크 후 concat
-        # ------------------------
-        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
-        new_df = pd.DataFrame(new_rows)
 
-        # existing_df가 완전히 NA이면 빈 DataFrame으로 초기화
+        # ------------------------
+        # 세션별 안전한 concat
+        # ------------------------
+        existing_df = st.session_state['highway_data'][highway_choice][key_combo].copy()
+        new_df = pd.DataFrame(new_rows)
         if existing_df.empty or existing_df.isna().all().all():
             existing_df = pd.DataFrame(columns=new_df.columns)
-
-        # new_df가 비어있지 않으면 concat
         if not new_df.empty:
             st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
                 [existing_df, new_df],
                 ignore_index=True
             )
-
-        # 최종 df_points 갱신
         df_points = st.session_state['highway_data'][highway_choice][key_combo]
-        
+
+    # Heatmap
     if df_points.empty:
         m = folium.Map(location=[37.5665, 126.9780], zoom_start=12)
     else:
@@ -288,16 +280,13 @@ with left_col.container():
         zoom_level = max(12, min(zoom_level, 18))
         m = folium.Map(location=[lat_mean, lon_mean], zoom_start=zoom_level)
         HeatMap(df_points[['lat','lon','risk']].values, radius=18, blur=10, min_opacity=0.5).add_to(m)
-
     st_folium(m, width=700, height=500)
 
 # ---------- 수치표 ----------
 with right_col.container():
     st.markdown(f'<div class="subheader-box">모델 예측 데이터 수치표 - {selected_city}</div>', unsafe_allow_html=True)
-
     def highlight_risk(row):
         return ['background-color: #FFCCCC' if row['risk'] >= 70 else '' for _ in row]
-
     if not df_points.empty:
         styled_df = (
             df_points[["lat","lon","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]]
