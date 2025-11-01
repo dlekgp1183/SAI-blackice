@@ -256,10 +256,17 @@ with left_col.container():
                 "rltv_hmdt": rltv_hmdt, "hour": hour,
                 "time_slot": slot, "risk": risk
             })
-        st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
-            [st.session_state['highway_data'][highway_choice][key_combo], pd.DataFrame(new_rows)],
-            ignore_index=True
-        )
+        
+        # ------------------------
+        # 빈 DataFrame 체크 후 concat
+        # ------------------------
+        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
+        new_df = pd.DataFrame(new_rows)
+        if not new_df.empty:
+            st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
+                [existing_df, new_df],
+                ignore_index=True
+            )
         df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
     if df_points.empty:
