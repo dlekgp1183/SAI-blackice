@@ -85,9 +85,6 @@ body, p, h2, h3, h4, h5, h6,
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# 제목
-# =========================
 st.markdown('<h1 class="title-font">❄️ 블랙아이스 위험도 모니터링</h1>', unsafe_allow_html=True)
 
 # =========================
@@ -143,10 +140,10 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 
 # =========================
-# 좌표 캐시 함수
+# 좌표 캐시 (세션 독립)
 # =========================
 @st.cache_data
-def load_or_cache_coords(highway_name, city_name):
+def load_coords_file(highway_name, city_name):
     BASE_DIR = os.path.dirname(__file__)
     filename = os.path.join(BASE_DIR, f"coords_{highway_name}_{city_name}.csv")
     return pd.read_csv(filename)
@@ -180,7 +177,7 @@ with st.sidebar:
     )
 
 # =========================
-# 메트릭
+# 메트릭 (샘플)
 # =========================
 cols = st.columns(6, gap="small")
 cols[0].metric("Max temperature", "35.0°C", delta="-0.6°C")
@@ -191,7 +188,7 @@ cols[4].metric("Max wind", "8.0 m/s", delta="-0.8 m/s")
 cols[5].metric("Min wind", "0.5 m/s", delta="-0.1 m/s")
 
 # =========================
-# 세션 상태 초기화
+# 세션 상태 초기화 (사용자 독립)
 # =========================
 if 'highway_data' not in st.session_state:
     st.session_state['highway_data'] = {}
@@ -199,14 +196,14 @@ if 'all_coords' not in st.session_state:
     st.session_state['all_coords'] = {}
 
 # =========================
-# 좌표 로드
+# 좌표 로드 (세션 복사)
 # =========================
 for highway in highways:
     if highway not in st.session_state['all_coords']:
         st.session_state['all_coords'][highway] = {}
     for city in cities_dict[highway]:
         if city not in st.session_state['all_coords'][highway]:
-            st.session_state['all_coords'][highway][city] = load_or_cache_coords(highway, city)
+            st.session_state['all_coords'][highway][city] = load_coords_file(highway, city).copy()
 
 # =========================
 # 도시 선택
@@ -224,7 +221,7 @@ if key_combo not in st.session_state['highway_data'][highway_choice]:
         columns=["lon","lat","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]
     )
 
-road_df = st.session_state['all_coords'][highway_choice][selected_city]
+road_df = st.session_state['all_coords'][highway_choice][selected_city].copy()
 df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
 # =========================
@@ -235,7 +232,6 @@ left_col, right_col = st.columns([1.5, 2])
 # ---------- Heatmap ----------
 with left_col.container():
     st.markdown(f'<div class="subheader-box">위험도 Heatmap - {selected_city}</div>', unsafe_allow_html=True)
-    
     if st.button("새로고침", key=f"refresh_{key_combo}"):
         new_rows = []
         for _ in range(5):
@@ -255,20 +251,20 @@ with left_col.container():
             })
 
         # ------------------------
-        # 세션별 안전한 concat
+        # 세션 독립형 concat
         # ------------------------
-        existing_df = st.session_state['highway_data'][highway_choice][key_combo].copy()
+        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
         new_df = pd.DataFrame(new_rows)
         if existing_df.empty or existing_df.isna().all().all():
             existing_df = pd.DataFrame(columns=new_df.columns)
         if not new_df.empty:
             st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
-                [existing_df, new_df],
+                [existing_df.copy(), new_df.copy()],
                 ignore_index=True
             )
         df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
-    # Heatmap
+    # 지도 표시
     if df_points.empty:
         m = folium.Map(location=[37.5665, 126.9780], zoom_start=12)
     else:
