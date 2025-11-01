@@ -141,7 +141,7 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
 # =========================
 # 데이터 로드
 # =========================
-df = pd.read_csv("test_data.csv")
+df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
 
 # =========================
 # 좌표 캐시 함수
