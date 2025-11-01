@@ -262,13 +262,21 @@ with left_col.container():
         # ------------------------
         existing_df = st.session_state['highway_data'][highway_choice][key_combo]
         new_df = pd.DataFrame(new_rows)
+
+        # existing_df가 완전히 NA이면 빈 DataFrame으로 초기화
+        if existing_df.empty or existing_df.isna().all().all():
+            existing_df = pd.DataFrame(columns=new_df.columns)
+
+        # new_df가 비어있지 않으면 concat
         if not new_df.empty:
             st.session_state['highway_data'][highway_choice][key_combo] = pd.concat(
                 [existing_df, new_df],
                 ignore_index=True
             )
-        df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
+        # 최종 df_points 갱신
+        df_points = st.session_state['highway_data'][highway_choice][key_combo]
+        
     if df_points.empty:
         m = folium.Map(location=[37.5665, 126.9780], zoom_start=12)
     else:
