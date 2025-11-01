@@ -8,46 +8,41 @@ from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 from joblib import load
 import os
-import osmnx as ox # (사용되지 않는 모듈이지만 남겨둠)
-from shapely.geometry import LineString, MultiLineString # (사용되지 않는 모듈이지만 남겨둠)
+import osmnx as ox
+from shapely.geometry import LineString, MultiLineString
 import altair as alt
 import requests
+from datetime import datetime
 
+# =========================
+# 페이지 설정
+# =========================
 st.set_page_config(page_title="Black Ice Safety Dashboard", page_icon="❄️", layout="wide")
 
 # =========================
-# 모델 다운로드 URL
+# 모델 로드
 # =========================
 MODEL_URL = "https://github.com/dlekgp1183/SAI-blackice/releases/download/v1.0/blackice_model.joblib"
 MODEL_FILENAME = "blackice_model.joblib"
 CACHE_DIR = "model_cache"
 MODEL_PATH = os.path.join(CACHE_DIR, MODEL_FILENAME)
 
-# =========================
-# 모델 다운로드 및 로드
-# =========================
-@st.cache_data(show_spinner="⏳ 모델 파일 다운로드 및 로드 중...")
-def load_model_from_github():
+@st.cache_data(show_spinner="⏳ 모델 로드 중...")
+def load_model():
     os.makedirs(CACHE_DIR, exist_ok=True)
     if os.path.exists(MODEL_PATH):
         return load(MODEL_PATH)
-    try:
-        response = requests.get(MODEL_URL, stream=True)
-        response.raise_for_status()
-        with open(MODEL_PATH, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        return load(MODEL_PATH)
-    except requests.exceptions.RequestException as e:
-        st.error(f"❌ GitHub에서 모델 다운로드 실패: {e}")
-        st.stop()
-    except Exception as e:
-        st.error(f"❌ 모델 로드 중 오류 발생: {e}")
-        st.stop()
+    res = requests.get(MODEL_URL, stream=True, timeout=300)
+    res.raise_for_status()
+    with open(MODEL_PATH, 'wb') as f:
+        for chunk in res.iter_content(8192):
+            f.write(chunk)
+    return load(MODEL_PATH)
+
+model = load_model()
 
 # =========================
-# CSS: 폰트 + subheader
+# CSS 커스텀
 # =========================
 st.markdown("""
 <style>
@@ -88,24 +83,88 @@ body, p, h2, h3, h4, h5, h6,
 st.markdown('<h1 class="title-font">❄️ 블랙아이스 위험도 모니터링</h1>', unsafe_allow_html=True)
 
 # =========================
-# 모델 로드
+# 기상청 API (JSON)
+# =========================
+API_KEY = "10hq%2FXQHlvOAFMbPmF7Iwe0j1bOYBeh2x0dh6Budm8HVNXqsQpPcwYF3Z5r%2F0r%2FYoFAMpK%2BYg1ztyXBLMNE9xw%3D%3D"
+API_URL = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
+
+def latlon_to_grid(lat, lon):
+    nx = int(lon*10)
+    ny = int(lat*10)
+    return nx, ny
+
+def get_base_datetime():
+    now = datetime.now()
+    if now.minute < 45:
+        hour = now.hour - 1
+        if hour < 0:
+            hour = 23
+            base_date = (now - pd.Timedelta(days=1)).strftime("%Y%m%d")
+        else:
+            base_date = now.strftime("%Y%m%d")
+        base_time = f"{hour:02d}30"
+    else:
+        base_date = now.strftime("%Y%m%d")
+        base_time = f"{now.hour:02d}30"
+    return base_date, base_time
+
+@st.cache_data(ttl=600)
+def fetch_weather(lat=37.5665, lon=126.9780):
+    nx, ny = latlon_to_grid(lat, lon)
+    base_date, base_time = get_base_datetime()
+    params = {
+        "serviceKey": API_KEY,
+        "numOfRows": 3000,
+        "pageNo": 1,
+        "dataType": "JSON",
+        "base_date": base_date,
+        "base_time": base_time,
+        "nx": nx,
+        "ny": ny
+    }
+    res = requests.get(API_URL, params=params, timeout=10)
+    if res.status_code != 200:
+        return {"tmp":"-", "hum":"-", "sky":"-"}
+    data = res.json()
+    items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+    weather = {"tmp":"-", "hum":"-", "sky":"-"}
+    for item in items:
+        if item["category"]=="TMP":
+            weather["tmp"] = item["fcstValue"]
+        elif item["category"]=="REH":
+            weather["hum"] = item["fcstValue"]
+        elif item["category"]=="SKY":
+            sky_val = item["fcstValue"]
+            weather["sky"] = "맑음" if sky_val=="1" else "구름많음" if sky_val=="3" else "흐림"
+    return weather
+
+weather = fetch_weather()
+
+# =========================
+# 상단 메트릭
+# =========================
+cols = st.columns(6, gap="small")
+cols[0].metric("현재 기온", f"{weather['tmp']}ºC")
+cols[1].metric("현재 습도", f"{weather['hum']}%")
+cols[2].metric("날씨", weather["sky"])
+cols[3].metric("Max temperature", "35.0°C", delta="-0.6°C")
+cols[4].metric("Min temperature", "-3.8°C", delta="2.2°C")
+cols[5].metric("Max wind", "8.0 m/s", delta="-0.8 m/s")
+
+# =========================
+# 데이터 로드
 # =========================
 try:
-    model = load_model_from_github()
-except Exception:
-    st.error("모델 로드에 실패하여 앱 실행을 중단합니다.")
+    df = pd.read_csv("test_data.csv")
+except FileNotFoundError:
+    st.error("❌ 'test_data.csv' 파일을 찾을 수 없습니다.")
     st.stop()
 
 # =========================
-# 예측 함수
+# 예측 관련 함수
 # =========================
 def predict_road_state(model, atmp_tmpr, road_tmpr, rltv_hmdt, hour):
-    def time_slot(hour):
-        if 0 <= hour < 6: return "midnight"
-        elif 6 <= hour < 12: return "morning"
-        elif 12 <= hour < 18: return "afternoon"
-        else: return "evening"
-    slot = time_slot(hour)
+    slot = "midnight" if hour<6 else "morning" if hour<12 else "afternoon" if hour<18 else "evening"
     input_data = {
         "atmp_tmpr": [atmp_tmpr],
         "road_tmpr": [road_tmpr],
@@ -119,8 +178,7 @@ def predict_road_state(model, atmp_tmpr, road_tmpr, rltv_hmdt, hour):
     input_df = input_df[model.feature_names_in_]
     pred_class = model.predict(input_df)[0]
     proba = model.predict_proba(input_df)[0]
-    proba_dict = {cls: prob for cls, prob in zip(model.classes_, proba)}
-    return pred_class, proba_dict, slot
+    return pred_class, {cls: p for cls,p in zip(model.classes_, proba)}, slot
 
 def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
     class_weights = {"DRY":0,"IC1":0.9,"IC2":1,"SN1":0.4,"SN2":0.4,"WT1":0.5,"WT2":0.5,"WT3":0.5}
@@ -129,37 +187,40 @@ def calculate_risk_limited(proba_dict, atmp_tmpr, road_tmpr):
         weight = class_weights.get(cls, 0)
         if cls in ["WT1","WT2","WT3"]:
             if atmp_tmpr < 0 or road_tmpr < 0:
-                temp_factor = max(0,-min(atmp_tmpr,road_tmpr))/10
-                weight = min(weight+temp_factor,1)
+                weight = min(weight + max(0,-min(atmp_tmpr,road_tmpr))/10, 1)
         risk += prob*weight
     return round(risk*100,1)
 
 # =========================
-# 데이터 로드
-# =========================
-# Assuming test_data.csv is available in the deployment directory
-try:
-    df = pd.read_csv(os.path.join(os.path.dirname(__file__), "test_data.csv"))
-except FileNotFoundError:
-    st.error("test_data.csv 파일을 찾을 수 없습니다. 테스트 데이터가 필요합니다.")
-    st.stop()
-
-
-# =========================
-# 좌표 캐시 (세션 독립)
+# 좌표 캐시
 # =========================
 @st.cache_data
-def load_coords_file(highway_name, city_name):
-    BASE_DIR = os.path.dirname(__file__)
-    filename = os.path.join(BASE_DIR, f"coords_{highway_name}_{city_name}.csv")
-    try:
+def load_or_cache_coords(highway_name, city_name):
+    os.makedirs("coords_cache", exist_ok=True)
+    filename = f"coords_cache/{highway_name}_{city_name}.csv"
+    if os.path.exists(filename):
         return pd.read_csv(filename)
-    except FileNotFoundError:
-        st.error(f"좌표 파일 {filename}을 찾을 수 없습니다.")
-        return pd.DataFrame({'lon': [], 'lat': []})
+    try:
+        G = ox.graph_from_place(f"{city_name}, South Korea", network_type='drive')
+        nodes, edges = ox.graph_to_gdfs(G)
+        edges = edges[edges['name'].str.contains(highway_name, na=False)]
+        coords = []
+        for _, row in edges.iterrows():
+            geom = row['geometry']
+            lines = [geom] if isinstance(geom, LineString) else list(geom.geoms) if isinstance(geom, MultiLineString) else []
+            for line in lines:
+                xs = np.linspace(line.coords[0][0], line.coords[-1][0], 10)
+                ys = np.linspace(line.coords[0][1], line.coords[-1][1], 10)
+                coords.extend(list(zip(xs, ys)))
+        df_coords = pd.DataFrame(coords, columns=['lon','lat'])
+        df_coords.to_csv(filename, index=False)
+        return df_coords
+    except Exception as e:
+        print(f"⚠️ {city_name} OSMnx 로드 실패:", e)
+        return pd.DataFrame(columns=['lon','lat'])
 
 # =========================
-# 고속도로, 도시 목록
+# 고속도로/도시
 # =========================
 highways = ["경부고속도로", "호남고속도로", "경인고속도로"]
 cities_dict = {
@@ -177,158 +238,95 @@ with st.sidebar:
         highways,
         icons=['map', 'map', 'map'],
         menu_icon="arrow",
-        default_index=0,
-        styles={
-            "container": {"padding": "4!important", "background-color": "#f7f9f9"},
-            "icon": {"color": "#03645a", "font-size": "18px"},
-            "nav-link": {"font-size": "14px", "text-align": "left", "margin": "2px", "--hover-color": "#e6f7f7"},
-            "nav-link-selected": {"background-color": "#8ac0ba", "color": "white"},
-        }
+        default_index=0
     )
 
-# =========================
-# 메트릭 (샘플)
-# =========================
-cols = st.columns(6, gap="small")
-cols[0].metric("Max temperature", "35.0°C", delta="-0.6°C")
-cols[1].metric("Min temperature", "-3.8°C", delta="2.2°C")
-cols[2].metric("Max precipitation", "55.9°C", delta="9.2°C")
-cols[3].metric("Min precipitation", "0.0°C", delta="0.0°C")
-cols[4].metric("Max wind", "8.0 m/s", delta="-0.8 m/s")
-cols[5].metric("Min wind", "0.5 m/s", delta="-0.1 m/s")
+selected_city = st.selectbox(f"{highway_choice} 주요 도시 선택", cities_dict[highway_choice])
 
 # =========================
-# 세션 상태 초기화 (사용자 독립)
+# 세션 초기화
 # =========================
 if 'highway_data' not in st.session_state:
     st.session_state['highway_data'] = {}
 if 'all_coords' not in st.session_state:
     st.session_state['all_coords'] = {}
+if 'auto_added' not in st.session_state:
+    st.session_state['auto_added'] = {}
 
-# =========================
-# 좌표 로드 (세션 복사)
-# =========================
-for highway in highways:
-    if highway not in st.session_state['all_coords']:
-        st.session_state['all_coords'][highway] = {}
-    for city in cities_dict[highway]:
-        if city not in st.session_state['all_coords'][highway]:
-            st.session_state['all_coords'][highway][city] = load_coords_file(highway, city).copy()
-
-# =========================
-# 도시 선택
-# =========================
-selected_city = st.selectbox(f"{highway_choice} 주요 도시 선택", cities_dict[highway_choice])
-
-# =========================
-# 세션 데이터 초기화
-# =========================
 key_combo = f"{highway_choice}_{selected_city}"
-if highway_choice not in st.session_state['highway_data']:
-    st.session_state['highway_data'][highway_choice] = {}
-if key_combo not in st.session_state['highway_data'][highway_choice] or st.session_state['highway_data'][highway_choice][key_combo].empty:
-    st.session_state['highway_data'][highway_choice][key_combo] = pd.DataFrame(
-        columns=["lon","lat","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]
-    )
+st.session_state['all_coords'].setdefault(highway_choice, {})
+st.session_state['all_coords'][highway_choice].setdefault(selected_city, load_or_cache_coords(highway_choice, selected_city))
 
-road_df = st.session_state['all_coords'][highway_choice][selected_city].copy()
+st.session_state['highway_data'].setdefault(highway_choice, {})
+st.session_state['highway_data'][highway_choice].setdefault(key_combo, pd.DataFrame(
+    columns=["lon","lat","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]
+))
+
+road_df = st.session_state['all_coords'][highway_choice][selected_city]
 df_points = st.session_state['highway_data'][highway_choice][key_combo]
 
 # =========================
-# 페이지 레이아웃
+# 자동 데이터 추가 함수
+# =========================
+def add_new_data(df_points, road_df, n=1):
+    if len(df_points) >= 50:
+        return df_points
+    new_rows = []
+    for _ in range(n):
+        sample = df.sample(1).iloc[0]
+        coord = road_df.sample(1).iloc[0]
+        atmp_tmpr = sample.get("atmp_tmpr", np.random.uniform(-5,10))
+        road_tmpr = sample.get("road_tmpr", np.random.uniform(-5,15))
+        rltv_hmdt = sample.get("rltv_hmdt", np.random.uniform(30,100))
+        hour = int(sample.get("hour", np.random.randint(0,24)))
+        _, proba, slot = predict_road_state(model, atmp_tmpr, road_tmpr, rltv_hmdt, hour)
+        risk = calculate_risk_limited(proba, atmp_tmpr, road_tmpr)
+        new_rows.append({
+            "lon": coord["lon"], "lat": coord["lat"],
+            "road_tmpr": road_tmpr, "atmp_tmpr": atmp_tmpr,
+            "rltv_hmdt": rltv_hmdt, "hour": hour,
+            "time_slot": slot, "risk": risk
+        })
+    return pd.concat([df_points, pd.DataFrame(new_rows)], ignore_index=True)
+
+if len(df_points) < 50:
+    st.session_state['highway_data'][highway_choice][key_combo] = add_new_data(df_points, road_df, n=5)
+    df_points = st.session_state['highway_data'][highway_choice][key_combo]
+else:
+    now_hour = datetime.now().hour
+    st.success(f"{now_hour} 시의 데이터 로드가 완료되었습니다.")
+
+# =========================
+# Heatmap & 수치표 & 파이차트
 # =========================
 left_col, right_col = st.columns([1.5, 2])
 
-# ---------- Heatmap ----------
 with left_col.container():
     st.markdown(f'<div class="subheader-box">위험도 Heatmap - {selected_city}</div>', unsafe_allow_html=True)
-    
-    # **데이터 누적 방지 로직 수정 시작**
-    if st.button("새로고침", key=f"refresh_{key_combo}"):
-        new_rows = []
-        for _ in range(5):
-            sample = df.sample(1).iloc[0]
-            coord = road_df.sample(1).iloc[0]
-            atmp_tmpr = sample.get("atmp_tmpr", np.random.uniform(-5,10))
-            road_tmpr = sample.get("road_tmpr", np.random.uniform(-5,15))
-            rltv_hmdt = sample.get("rltv_hmdt", np.random.uniform(30,100))
-            hour = int(sample.get("hour", np.random.randint(0,24)))
-            _, proba, slot = predict_road_state(model, atmp_tmpr, road_tmpr, rltv_hmdt, hour)
-            risk = calculate_risk_limited(proba, atmp_tmpr, road_tmpr)
-            new_rows.append({
-                "lon": coord["lon"], "lat": coord["lat"],
-                "road_tmpr": road_tmpr, "atmp_tmpr": atmp_tmpr,
-                "rltv_hmdt": rltv_hmdt, "hour": hour,
-                "time_slot": slot, "risk": risk
-            })
-
-        # ------------------------
-        # 세션 독립형 concat 및 크기 제한 로직
-        # ------------------------
-        MAX_POINTS = 100 # 최대 포인트 수 설정: 이 값을 조정하여 메모리 사용량을 조절합니다.
-        
-        new_df = pd.DataFrame(new_rows)
-        existing_df = st.session_state['highway_data'][highway_choice][key_combo]
-
-        if existing_df.empty or existing_df.isna().all().all():
-            updated_df = new_df
-        else:
-            updated_df = pd.concat(
-                [existing_df, new_df],
-                ignore_index=True
-            )
-        
-        # 최대 크기 제한: 데이터가 MAX_POINTS를 초과하면, 가장 오래된 데이터(가장 위쪽 행)를 제거
-        if len(updated_df) > MAX_POINTS:
-            updated_df = updated_df.iloc[-MAX_POINTS:] # 끝에서부터 MAX_POINTS 개만 남김
-
-        st.session_state['highway_data'][highway_choice][key_combo] = updated_df
-        df_points = st.session_state['highway_data'][highway_choice][key_combo]
-    # **데이터 누적 방지 로직 수정 끝**
-
-
-    # 지도 표시
     if df_points.empty:
         m = folium.Map(location=[37.5665, 126.9780], zoom_start=12)
     else:
         lat_mean = df_points['lat'].mean()
         lon_mean = df_points['lon'].mean()
-        
-        # 맵 뷰포트 계산을 위한 안전장치 추가
-        if len(df_points) > 1:
-            lat_min, lat_max = df_points['lat'].min(), df_points['lat'].max()
-            lon_min, lon_max = df_points['lon'].min(), df_points['lon'].max()
-            zoom_level = int(14 - max(lat_max-lat_min, lon_max-lon_min)*30)
-            zoom_level = max(12, min(zoom_level, 18))
-        else:
-            zoom_level = 15 # 데이터가 1개일 경우 기본 줌 레벨
-            
-        m = folium.Map(location=[lat_mean, lon_mean], zoom_start=zoom_level)
+        m = folium.Map(location=[lat_mean, lon_mean], zoom_start=13)
         HeatMap(df_points[['lat','lon','risk']].values, radius=18, blur=10, min_opacity=0.5).add_to(m)
     st_folium(m, width=700, height=500)
 
-# ---------- 수치표 ----------
 with right_col.container():
     st.markdown(f'<div class="subheader-box">모델 예측 데이터 수치표 - {selected_city}</div>', unsafe_allow_html=True)
     def highlight_risk(row):
         return ['background-color: #FFCCCC' if row['risk'] >= 70 else '' for _ in row]
     if not df_points.empty:
-        styled_df = (
-            df_points[["lat","lon","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]]
-            .sort_values(by="risk", ascending=False)
-            .reset_index(drop=True)
-            .style.apply(highlight_risk, axis=1)
-        )
+        styled_df = df_points[["lat","lon","road_tmpr","atmp_tmpr","rltv_hmdt","hour","time_slot","risk"]].sort_values(by="risk", ascending=False).reset_index(drop=True).style.apply(highlight_risk, axis=1)
         st.dataframe(styled_df, height=400)
     else:
         st.info("데이터를 추가해 주세요.")
 
-# ---------- 파이차트 ----------
 with right_col.container():
     st.markdown(f'<div class="subheader-box">안전/주의/위험 구간 비율 - {selected_city}</div>', unsafe_allow_html=True)
     if not df_points.empty:
-        bins = pd.cut(df_points['risk'], bins=[0,30,60,100], labels=['안전','주의','위험'], right=False) # 30 미만, 60 미만, 100 미만
-        count = bins.value_counts().reindex(['안전','주의','위험']).fillna(0).reset_index() # 0으로 채워서 오류 방지
+        bins = pd.cut(df_points['risk'], bins=[0,30,60,100], labels=['안전','주의','위험'])
+        count = bins.value_counts().reindex(['안전','주의','위험']).reset_index()
         count.columns = ['category','count']
         pie_chart = alt.Chart(count).mark_arc(innerRadius=30).encode(
             theta=alt.Theta(field="count", type="quantitative"),
