@@ -164,7 +164,7 @@ except FileNotFoundError:
 @st.cache_data
 def load_or_cache_coords(highway_name, city_name):
     os.makedirs("coords_cache", exist_ok=True)
-    filename = f"coords_cache/{highway_name}_{city_name}.csv"
+    filename = f"{highway_name}_{city_name}.csv"
     if os.path.exists(filename):
         return pd.read_csv(filename)
     try:
