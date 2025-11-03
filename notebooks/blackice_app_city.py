@@ -12,6 +12,7 @@ from shapely.geometry import LineString, MultiLineString
 import altair as alt
 from datetime import datetime
 import time
+from zoneinfo import ZoneInfo
 
 # =========================
 # 페이지 설정
@@ -164,7 +165,7 @@ except FileNotFoundError:
 @st.cache_data
 def load_or_cache_coords(highway_name, city_name):
     os.makedirs("coords_cache", exist_ok=True)
-    filename = f"{highway_name}_{city_name}.csv"
+    filename = f"coords_{highway_name}_{city_name}.csv"
     if os.path.exists(filename):
         return pd.read_csv(filename)
     try:
@@ -209,7 +210,7 @@ df_points = st.session_state['highway_data'][highway_choice][key_combo]
 # =========================
 # 자동 데이터 추가 (샘플 기반)
 # =========================
-current_hour = datetime.now().strftime("%H")
+current_hour = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%H")
 status_placeholder = st.empty()
 
 def add_new_data(df_points, road_df, n=1):
