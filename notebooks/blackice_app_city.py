@@ -83,6 +83,16 @@ body, p, h2, h3, h4, h5, h6,
 st.markdown('<h1 class="title-font">❄️ 블랙아이스 위험도 모니터링</h1>', unsafe_allow_html=True)
 
 # =========================
+# 메트릭
+# =========================
+cols = st.columns(6, gap="small")
+cols[0].metric("Max temperature", "35.0°C", delta="-0.6°C")
+cols[1].metric("Min temperature", "-3.8°C", delta="2.2°C")
+cols[2].metric("Max precipitation", "55.9mm", delta="9.2mm")
+cols[3].metric("Min precipitation", "0.0mm",delta="0.0mm")
+cols[4].metric("Max wind", "8.0 m/s", delta="-0.8 m/s")
+cols[5].metric("Min wind", "0.5 m/s", delta="-0.1 m/s")
+# =========================
 # test_data.csv 로드
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -200,17 +210,21 @@ df_points = st.session_state['highway_data'][highway_choice][key_combo]
 # =========================
 # 자동 데이터 추가
 # =========================
+current_hour = datetime.now().strftime("%H")  # 시 단위만
+status_placeholder = st.empty()  # 상태 문구를 동적으로 표시할 자리
+
 def add_new_data(df_points, road_df, n=1):
+    """자동으로 새로운 샘플 데이터를 추가 (기본: 1개씩)"""
     if len(df_points) >= 50:
         return df_points
     new_rows = []
     for _ in range(n):
         sample = df.sample(1).iloc[0]
         coord = road_df.sample(1).iloc[0]
-        atmp_tmpr = sample.get("atmp_tmpr", np.random.uniform(-5,10))
-        road_tmpr = sample.get("road_tmpr", np.random.uniform(-5,15))
-        rltv_hmdt = sample.get("rltv_hmdt", np.random.uniform(30,100))
-        hour = int(sample.get("hour", np.random.randint(0,24)))
+        atmp_tmpr = sample.get("atmp_tmpr", np.random.uniform(-5, 10))
+        road_tmpr = sample.get("road_tmpr", np.random.uniform(-5, 15))
+        rltv_hmdt = sample.get("rltv_hmdt", np.random.uniform(30, 100))
+        hour = int(sample.get("hour", np.random.randint(0, 24)))
         _, proba, slot = predict_road_state(model, atmp_tmpr, road_tmpr, rltv_hmdt, hour)
         risk = calculate_risk_limited(proba, atmp_tmpr, road_tmpr)
         new_rows.append({
@@ -221,9 +235,21 @@ def add_new_data(df_points, road_df, n=1):
         })
     return pd.concat([df_points, pd.DataFrame(new_rows)], ignore_index=True)
 
+# 1개씩 추가 & 상태 출력
 if len(df_points) < 50:
-    st.session_state['highway_data'][highway_choice][key_combo] = add_new_data(df_points, road_df, n=5)
+    status_placeholder.markdown(
+        f"<p style='color:#0277BD; font-size:18px; font-weight:600; "
+        f"font-family:LeeSunSinDotum;'>🕓 {current_hour}시 데이터를 받고 있습니다...</p>",
+        unsafe_allow_html=True
+    )
+    st.session_state['highway_data'][highway_choice][key_combo] = add_new_data(df_points, road_df, n=1)
     df_points = st.session_state['highway_data'][highway_choice][key_combo]
+else:
+    status_placeholder.markdown(
+        f"<p style='color:#00695C; font-size:18px; font-weight:600; "
+        f"font-family:LeeSunSinDotum;'>🕓 {current_hour}시 데이터 로드가 완료되었습니다.</p>",
+        unsafe_allow_html=True
+    )
 
 # =========================
 # Heatmap & 수치표 & 파이차트
@@ -267,4 +293,3 @@ with right_col.container():
         st.altair_chart(pie_chart, use_container_width=True)
     else:
         st.info("데이터를 추가해 주세요.")
- 
