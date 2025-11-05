@@ -151,7 +151,7 @@ df_points = st.session_state['highway_data'][key_combo]
 current_hour = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%H")
 status_placeholder = st.empty()
 
-def add_new_data(df_points, n=1):
+def add_new_data(df_points, n=5):
     if len(df_points) >= 50:
         return df_points
     new_rows = df.sample(n, replace=True)  # 샘플 데이터에서 n개 랜덤 추출
@@ -164,7 +164,7 @@ if len(df_points) < 50:
         f"font-family:LeeSunSinDotum;'>🕓 {current_hour}시 데이터를 받고 있습니다...</p>",
         unsafe_allow_html=True
     )
-    st.session_state['highway_data'][key_combo] = add_new_data(df_points, n=1)
+    st.session_state['highway_data'][key_combo] = add_new_data(df_points, n=5)
     time.sleep(3)
     df_points = st.session_state['highway_data'][key_combo]
 else:
